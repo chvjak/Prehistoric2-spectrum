@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a character-free two-level Prehistorik 2 Spectrum scrolling study."""
+"""Build a character-free monochrome Spectrum scrolling reference slice."""
 from __future__ import annotations
 
 import hashlib
@@ -111,12 +111,9 @@ def render_view(world: Image.Image, position: int) -> bytes:
 
 
 def attrs() -> bytes:
-    values = bytearray(768)
-    papers = (1, 1, 3, 3, 2, 2, 6, 6, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-    for y, paper in enumerate(papers):
-        for x in range(32):
-            values[y * 32 + x] = (0x40 if y < 15 else 0) | (paper << 3) | 7
-    return bytes(values)
+    # Permanent monochrome attributes: black paper, bright white ink. Rendering
+    # never touches this 768-byte region after snapshot initialisation.
+    return bytes([0x47]) * 768
 
 
 def write_generated_source() -> None:
@@ -175,9 +172,10 @@ def main() -> None:
     write_generated_source()
     code = assemble()
     snapshot = make_sna(code, pack_level(level_one), pack_level(level_two), render_view(level_one, 0))
-    sna = OUT / "prehistorik2-levels1-2-1px-scroll.sna"; sna.write_bytes(snapshot)
+    sna = OUT / "prehistorik2-monochrome-camera-benchmark.sna"; sna.write_bytes(snapshot)
     manifest = {"target":"Stock ZX Spectrum 128K PAL", "levels":[{"id":1,"width":WORLD_WIDTH},{"id":2,"width":WORLD_WIDTH}],
-                "scroll":{"one_pixel_phases":8,"presentation_step_pixels":4,"view_width":VIEW_WIDTH,"active_scanlines":LEVEL_HEIGHT},
+                "render":{"attributes":"fixed bright-white ink on black paper","per_frame_attribute_writes":0},
+                "scroll":{"one_pixel_phases":8,"camera_benchmark_steps":[8,4,1],"mode_hold_presents":64,"view_width":VIEW_WIDTH,"active_scanlines":LEVEL_HEIGHT},
                 "snapshot":{"bytes":len(snapshot),"sha256":hashlib.sha256(snapshot).hexdigest()}}
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(manifest, indent=2))
