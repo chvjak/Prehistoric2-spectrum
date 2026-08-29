@@ -26,7 +26,7 @@ const u16 = (a) => u8(a) | (u8(a+1) << 8);
 const palette = [[0,0,0],[32,48,192],[192,64,16],[192,64,192],[64,176,16],[80,192,176],[224,192,16],[192,192,192],[0,0,0],[48,64,255],[255,64,48],[255,112,240],[80,224,16],[80,224,255],[255,232,80],[255,255,255]];
 function frame() {
   memory = new Uint8Array(core.memory.buffer);
-  const screen = memory.subarray(page(u8(0xbe09) ? 7 : 5), page(u8(0xbe09) ? 7 : 5) + 6912);
+  const screen = memory.subarray(page(u8(0xbb07) ? 7 : 5), page(u8(0xbb07) ? 7 : 5) + 6912);
   const out = Buffer.allocUnsafe(320 * 240 * 3); let q = 0;
   const pixel = (i) => { const c = palette[i & 15]; out[q++] = c[0]; out[q++] = c[1]; out[q++] = c[2]; };
   for (let y=0;y<24;y++) for(let x=0;x<320;x++) pixel(0);
@@ -49,7 +49,7 @@ for (let refresh = 1; refresh <= Number(refreshText); refresh++) {
   written++;
 }
 process.stderr.write(`${JSON.stringify({
-  refreshes:Number(refreshText), framesWritten:written, renderedFrames:u16(0xbe04),
-  signature: Buffer.from([u8(0xbe00),u8(0xbe01),u8(0xbe02),u8(0xbe03)]).toString(),
-  position:u8(0xbe06), direction:u8(0xbe07), displayedBank:u8(0xbe09)?7:5, pc:core.getPC(),
+  refreshes:Number(refreshText), framesWritten:written, renderedFrames:u16(0xbb04),
+  signature: Buffer.from([u8(0xbb00),u8(0xbb01),u8(0xbb02),u8(0xbb03)]).toString(),
+  level:u8(0xbb06) + 1, displayedBank:u8(0xbb07)?7:5, pc:core.getPC(),
 })}\n`);
