@@ -63,7 +63,7 @@ in fixed 256x192 screen memory.
 
 ## Monochrome-first target
 
-Use a single fixed attribute value on every cell (`0x07`: white ink on black
+Use a single fixed attribute value on every cell (`0x47`: bright white ink on black
 paper) in both screen banks. Attribute RAM is initialised once and is excluded
 from the per-frame renderer. All art conversion produces a 1-bit mask/ink
 bitmap and all sprite composition is bitmap-only.
