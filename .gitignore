@@ -1,0 +1,4 @@
+artifacts/
+generated_rows.inc
+reference/
+__pycache__/
