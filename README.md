@@ -4,6 +4,11 @@ Technical next-step notes, including CPC disk-loader reconnaissance and the
 monochrome-first Spectrum port plan, are in
 [docs/cpc_recon_and_port_plan.md](docs/cpc_recon_and_port_plan.md).
 
+The current reference snapshot is deliberately monochrome: both screen banks
+have permanent bright-white-on-black attributes, so the scrolling hot path only
+updates bitmap bytes. It cycles through 8-, 4- and 1-pixel camera increments
+every 64 completed hidden-screen renders; capture reports the active step.
+
 This stock Spectrum 128K technical/art study covers two complete four-screen
 level strips, based on the CPC/CPC+ conversion's cave, jungle, bridge, and
 crystal environments. It contains no characters, HUD, original game data, or
