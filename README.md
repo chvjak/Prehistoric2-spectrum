@@ -1,5 +1,9 @@
 # Prehistorik 2 levels 1 and 2 scrolling study
 
+Technical next-step notes, including CPC disk-loader reconnaissance and the
+monochrome-first Spectrum port plan, are in
+[docs/cpc_recon_and_port_plan.md](docs/cpc_recon_and_port_plan.md).
+
 This stock Spectrum 128K technical/art study covers two complete four-screen
 level strips, based on the CPC/CPC+ conversion's cave, jungle, bridge, and
 crystal environments. It contains no characters, HUD, original game data, or
