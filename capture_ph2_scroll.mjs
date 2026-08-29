@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Capture only the stable, post-render Spectrum refreshes (25 fps).
+// Capture physical display bank output from the monochrome benchmark.
 import fs from "node:fs";
 import { once } from "node:events";
 
@@ -42,8 +42,6 @@ function frame() {
 let written = 0;
 for (let refresh = 1; refresh <= Number(refreshText); refresh++) {
   if (core.runFrame() !== 0) throw new Error(`emulator status at ${refresh}`);
-  // The first refresh begins the 27ms copy.  Every even refresh is the full
-  // frame held by HALT, giving a clean 25fps capture without tearing.
   if ((refresh & 1) !== 0) continue;
   if (!process.stdout.write(frame())) await once(process.stdout, "drain");
   written++;
@@ -51,5 +49,6 @@ for (let refresh = 1; refresh <= Number(refreshText); refresh++) {
 process.stderr.write(`${JSON.stringify({
   refreshes:Number(refreshText), framesWritten:written, renderedFrames:u16(0xbb04),
   signature: Buffer.from([u8(0xbb00),u8(0xbb01),u8(0xbb02),u8(0xbb03)]).toString(),
-  level:u8(0xbb06) + 1, displayedBank:u8(0xbb07)?7:5, pc:core.getPC(),
+  level:u8(0xbb06) + 1, displayedBank:u8(0xbb07)?7:5,
+  cameraMode:[8,4,1][u8(0xbb09)] ?? 0, cameraStep:u8(0xbb0a), pc:core.getPC(),
 })}\n`);
