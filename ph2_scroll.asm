@@ -1,45 +1,44 @@
-; Prehistorik 2-inspired stock ZX Spectrum 128K scrolling strip.
-; The source is stored pre-shifted for all eight pixel phases.  The Z80 only
-; selects the phase/coarse-byte offset and copies each 32-byte raster line.
+; Stock 128K two-level scroll. Source pixels are unshifted, while two 8x256
+; lookup tables join the left/right byte halves for each X mod 8 phase.
 
         ORG 0x8000
 
 START:
         DI
         LD SP,0xBFF0
-        LD HL,0xBE00
+        LD HL,0xBB00
         LD (HL),'P'
         INC HL
         LD (HL),'H'
         INC HL
         LD (HL),'2'
         INC HL
-        LD (HL),'S'
+        LD (HL),'L'
         XOR A
         LD (STATUS_FRAMES),A
         LD (STATUS_FRAMES+1),A
-        LD (STATUS_POSITION),A
-        LD (STATUS_DIRECTION),A
-        LD (STATUS_IRQ),A
+        LD (STATUS_LEVEL),A
         LD (STATUS_SCREEN),A
+        LD (STATUS_IRQ),A
         LD (POSITION),A
+        LD (POSITION+1),A
         LD (DIRECTION),A
-        LD (DISPLAY_BIT),A     ; bank 5 initially displayed
+        LD (DISPLAY_BIT),A
+        LD (LEVEL_INDEX),A
+        LD (LEVEL_BANK),A
         LD A,1
+        LD (DIRECTION),A
         LD (RENDER_TO_7),A
-        LD A,0xA0
+        LD A,0xB9
         LD I,A
         IM 2
         EI
 
 FRAME:
-        CALL WAIT_IRQ           ; begin a refresh-aligned update
+        CALL WAIT_IRQ
+        CALL CALCULATE_OFFSET
         CALL DRAW_LEVEL
         CALL ADVANCE_SCROLL
-        LD A,(POSITION)
-        LD (STATUS_POSITION),A
-        LD A,(DIRECTION)
-        LD (STATUS_DIRECTION),A
         LD HL,(STATUS_FRAMES)
         INC HL
         LD (STATUS_FRAMES),HL
@@ -47,62 +46,47 @@ FRAME:
 
 WAIT_IRQ:
         LD A,(STATUS_IRQ)
-.wait:
-        HALT
+.wait:  HALT
         LD HL,STATUS_IRQ
         CP (HL)
         JR Z,.wait
         RET
 
-; POSITION is 0..64 pixel positions.  Offset into one source row is
-; (POSITION & 7) * 40 + (POSITION >> 3).  40 source bytes cover 320 pixels;
-; a 32-byte, 256-pixel viewport is copied from that start.
-DRAW_LEVEL:
-        LD A,(POSITION)
-        LD E,A
+; phase = x & 7, coarse = x >> 3. Camera advances four pixels per complete
+; hidden-screen render so every other frame exercises a non-zero pixel phase.
+CALCULATE_OFFSET:
+        LD HL,(POSITION)
+        LD A,L
         AND 7
-        LD L,A
-        LD H,0
-        ADD HL,HL
-        ADD HL,HL
-        ADD HL,HL              ; phase * 8
-        LD D,H
-        LD E,L
-        ADD HL,HL
-        ADD HL,HL              ; phase * 32
-        ADD HL,DE              ; phase * 40
-        LD A,(POSITION)
-        SRL A
-        SRL A
-        SRL A
-        LD E,A
-        LD D,0
-        ADD HL,DE
-        LD (SOURCE_OFFSET),HL
+        LD (PHASE),A
+        SRL H
+        RR L
+        SRL H
+        RR L
+        SRL H
+        RR L
+        LD (COARSE),HL
+        RET
 
+DRAW_LEVEL:
         LD A,(RENDER_TO_7)
         OR A
         JP NZ,DRAW_TO_7
 
-; Bank 7 is on screen while bank 5 is updated through its fixed 0x4000 map.
+; Page 7 is visible; fill bank 5 through its fixed 0x4000 mapping.
 DRAW_TO_5:
-        LD IX,ROW_TABLE
-        LD A,LEVEL_HEIGHT
-        LD (ROWS_LEFT),A
-.row:
-        LD A,(IX+0)
+        LD A,(LEVEL_BANK)
         LD B,A
         LD A,(DISPLAY_BIT)
         OR B
-        CALL PAGE_VALUE        ; source at 0xC000, screen 7 remains visible
-        LD L,(IX+1)
-        LD H,(IX+2)
-        LD DE,(SOURCE_OFFSET)
-        ADD HL,DE
-        LD E,(IX+3)
-        LD D,(IX+4)
-        LD BC,32
-        LDIR
+        CALL PAGE_VALUE
+        LD IX,ROW_TABLE
+        LD A,LEVEL_HEIGHT
+        LD (ROWS_LEFT),A
+.row:   CALL LOAD_SOURCE
+        LD C,(IX+2)
+        LD B,(IX+3)
+        CALL RENDER_PHASE
         CALL NEXT_ROW
         JR NZ,.row
         XOR A
@@ -111,33 +95,24 @@ DRAW_TO_5:
         LD A,1
         LD (RENDER_TO_7),A
         XOR A
-        JP PAGE_VALUE          ; show the complete bank-5 frame
+        JP PAGE_VALUE
 
-; Bank 5 is on screen. Source and bank 7 both occupy 0xC000, so each 32-byte
-; row is staged through fixed bank-2 RAM before being committed to bank 7.
-; This is deliberately slower but eliminates visible partial line updates.
+; Page 5 is visible. Build each row in fixed RAM, then page bank 7 briefly
+; to commit it, keeping the displayed image untouched for the full render.
 DRAW_TO_7:
         LD IX,ROW_TABLE
         LD A,LEVEL_HEIGHT
         LD (ROWS_LEFT),A
-.row:
-        LD A,(IX+0)
-        LD B,A
-        LD A,(DISPLAY_BIT)
-        OR B
-        CALL PAGE_VALUE        ; source bank at 0xC000, bank 5 still visible
-        LD L,(IX+1)
-        LD H,(IX+2)
-        LD DE,(SOURCE_OFFSET)
-        ADD HL,DE
-        LD DE,SCRATCH_ROW
-        LD BC,32
-        LDIR
+.row:   LD A,(LEVEL_BANK)
+        CALL PAGE_VALUE
+        CALL LOAD_SOURCE
+        LD BC,SCRATCH_ROW
+        CALL RENDER_PHASE
         LD A,7
-        CALL PAGE_VALUE        ; target bank 7 at 0xC000, still not displayed
+        CALL PAGE_VALUE
         LD HL,SCRATCH_ROW
-        LD E,(IX+3)
-        LD D,(IX+4)
+        LD E,(IX+2)
+        LD D,(IX+3)
         SET 7,D
         LD BC,32
         LDIR
@@ -145,15 +120,24 @@ DRAW_TO_7:
         JR NZ,.row
         LD A,8
         LD (DISPLAY_BIT),A
-        XOR A
-        LD (RENDER_TO_7),A
         LD A,1
         LD (STATUS_SCREEN),A
+        XOR A
+        LD (RENDER_TO_7),A
         LD A,15
-        JP PAGE_VALUE          ; map and show the complete bank-7 frame
+        JP PAGE_VALUE
+
+; Read source pointer from the row table and add the current whole-byte X.
+; Returns source in DE; BC and IX remain available for the pixel phase routine.
+LOAD_SOURCE:
+        LD E,(IX+0)
+        LD D,(IX+1)
+        LD HL,(COARSE)
+        ADD HL,DE
+        EX DE,HL
+        RET
 
 NEXT_ROW:
-        INC IX
         INC IX
         INC IX
         INC IX
@@ -163,66 +147,109 @@ NEXT_ROW:
         LD (ROWS_LEFT),A
         RET
 
+; DE = source, BC = destination. Phase routines are generated as 32 unrolled
+; byte joins. Phase zero is the direct, fast copy case.
+RENDER_PHASE:
+        LD A,(PHASE)
+        OR A
+        JR NZ,.shifted
+        EX DE,HL
+        LD D,B
+        LD E,C
+        LD BC,32
+        LDIR
+        RET
+.shifted:
+        CP 1
+        JP Z,PHASE_1
+        CP 2
+        JP Z,PHASE_2
+        CP 3
+        JP Z,PHASE_3
+        CP 4
+        JP Z,PHASE_4
+        CP 5
+        JP Z,PHASE_5
+        CP 6
+        JP Z,PHASE_6
+        JP PHASE_7
+
 PAGE_VALUE:
         LD C,0xFD
         LD B,0x7F
         OUT (C),A
         RET
 
+; Scroll level 1 right then left. At its left edge start level 2, which then
+; bounces continuously. The visible status byte makes both passages testable.
 ADVANCE_SCROLL:
         LD A,(DIRECTION)
         OR A
         JR Z,.left
-.right:
-        LD A,(POSITION)
-        INC A
-        CP 65
-        JR NZ,.store_right
-        LD A,64
-        LD (POSITION),A
+.right:  LD HL,(POSITION)
+        LD DE,4
+        ADD HL,DE
+        LD A,H
+        CP 3
+        JR C,.store_right
+        JR NZ,.right_end
+        LD A,L
+        OR A
+        JR Z,.store_right
+.right_end:
+        LD HL,0x0300
         XOR A
         LD (DIRECTION),A
-        RET
 .store_right:
-        LD (POSITION),A
+        LD (POSITION),HL
         RET
-.left:
-        LD A,(POSITION)
+.left:  LD HL,(POSITION)
+        LD A,H
+        OR L
+        JR Z,.at_left
+        LD DE,4
         OR A
-        JR NZ,.store_left
+        SBC HL,DE
+        LD (POSITION),HL
+        RET
+.at_left:
+        LD A,(LEVEL_INDEX)
+        OR A
+        JR NZ,.bounce_level2
+        LD A,1
+        LD (LEVEL_INDEX),A
+        LD (LEVEL_BANK),A
+        LD (STATUS_LEVEL),A
+.bounce_level2:
         LD A,1
         LD (DIRECTION),A
         RET
-.store_left:
-        DEC A
-        LD (POSITION),A
-        RET
 
-POSITION:      DB 0
-DIRECTION:     DB 0
-ROWS_LEFT:     DB 0
-SOURCE_OFFSET: DW 0
-DISPLAY_BIT:   DB 0
-RENDER_TO_7:   DB 0
-SCRATCH_ROW:   DEFS 32
+POSITION:        DW 0
+COARSE:          DW 0
+PHASE:           DB 0
+DIRECTION:       DB 0
+LEVEL_INDEX:     DB 0
+LEVEL_BANK:      DB 0
+DISPLAY_BIT:     DB 0
+RENDER_TO_7:     DB 0
+ROWS_LEFT:       DB 0
+SCRATCH_ROW:     DEFS 32
 
-STATUS_FRAMES:    EQU 0xBE04
-STATUS_POSITION:  EQU 0xBE06
-STATUS_DIRECTION: EQU 0xBE07
-STATUS_IRQ:       EQU 0xBE08
-STATUS_SCREEN:    EQU 0xBE09
-
-LEVEL_HEIGHT EQU 136
+STATUS_FRAMES:   EQU 0xBB04
+STATUS_LEVEL:    EQU 0xBB06
+STATUS_SCREEN:   EQU 0xBB07
+STATUS_IRQ:      EQU 0xBB08
+LEVEL_HEIGHT     EQU 128
 
         INCLUDE "generated_rows.inc"
 
-        ASSERT $ < 0xA000
-
-; A fully populated IM2 table means the bus-supplied low byte is irrelevant.
-        DEFS 0xA000-$,0
+        ASSERT $ < 0xA800
+; Tables are inserted by the Python builder at 0xA800..0xB7FF.
+        DEFS 0xB900-$,0
 IM2_VECTORS:
-        DEFS 257,0xA1
-        DEFS 0xA1A1-$,0
+        DEFS 257,0xBA
+        DEFS 0xBABA-$,0
 IM2_HANDLER:
         PUSH AF
         LD A,(STATUS_IRQ)
@@ -231,5 +258,4 @@ IM2_HANDLER:
         POP AF
         EI
         RETI
-
-        ASSERT $ < 0xBE00
+        ASSERT $ < 0xBB00
