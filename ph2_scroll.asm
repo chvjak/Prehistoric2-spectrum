@@ -1,5 +1,7 @@
-; Stock 128K two-level scroll. Source pixels are unshifted, while two 8x256
-; lookup tables join the left/right byte halves for each X mod 8 phase.
+; Stock 128K monochrome scrolling reference slice. Source pixels are unshifted,
+; while two 8x256 lookup tables join the left/right byte halves for each X mod 8
+; phase. Both screen banks use permanent white-on-black attributes: all per-frame
+; work is bitmap-only.
 
         ORG 0x8000
 
@@ -20,12 +22,16 @@ START:
         LD (STATUS_LEVEL),A
         LD (STATUS_SCREEN),A
         LD (STATUS_IRQ),A
+        LD (STATUS_MODE),A
+        LD (STATUS_STEP),A
         LD (POSITION),A
         LD (POSITION+1),A
         LD (DIRECTION),A
         LD (DISPLAY_BIT),A
         LD (LEVEL_INDEX),A
         LD (LEVEL_BANK),A
+        LD (CAMERA_MODE),A
+        LD (MODE_TICKS),A
         LD A,1
         LD (DIRECTION),A
         LD (RENDER_TO_7),A
@@ -52,8 +58,7 @@ WAIT_IRQ:
         JR Z,.wait
         RET
 
-; phase = x & 7, coarse = x >> 3. Camera advances four pixels per complete
-; hidden-screen render so every other frame exercises a non-zero pixel phase.
+; phase = x & 7, coarse = x >> 3.
 CALCULATE_OFFSET:
         LD HL,(POSITION)
         LD A,L
@@ -180,14 +185,18 @@ PAGE_VALUE:
         OUT (C),A
         RET
 
+; Benchmark three camera strides without changing the renderer:
+; mode 0 = 8 pixels (phase 0 only), mode 1 = 4 pixels (phases 0 and 4),
+; mode 2 = 1 pixel (all eight phases). Each is held for 64 complete presents.
 ; Scroll level 1 right then left. At its left edge start level 2, which then
-; bounces continuously. The visible status byte makes both passages testable.
+; bounces continuously. Status bytes expose mode and stride to the capture tool.
 ADVANCE_SCROLL:
+        CALL UPDATE_CAMERA_MODE
         LD A,(DIRECTION)
         OR A
         JR Z,.left
 .right:  LD HL,(POSITION)
-        LD DE,4
+        LD DE,(CAMERA_STEP)
         ADD HL,DE
         LD A,H
         CP 3
@@ -207,7 +216,7 @@ ADVANCE_SCROLL:
         LD A,H
         OR L
         JR Z,.at_left
-        LD DE,4
+        LD DE,(CAMERA_STEP)
         OR A
         SBC HL,DE
         LD (POSITION),HL
@@ -225,12 +234,50 @@ ADVANCE_SCROLL:
         LD (DIRECTION),A
         RET
 
+UPDATE_CAMERA_MODE:
+        LD A,(MODE_TICKS)
+        INC A
+        LD (MODE_TICKS),A
+        CP 64
+        JR C,.set_step
+        XOR A
+        LD (MODE_TICKS),A
+        LD A,(CAMERA_MODE)
+        INC A
+        CP 3
+        JR C,.store_mode
+        XOR A
+.store_mode:
+        LD (CAMERA_MODE),A
+        LD (STATUS_MODE),A
+.set_step:
+        LD A,(CAMERA_MODE)
+        OR A
+        JR NZ,.not_8
+        LD HL,8
+        JR .store_step
+.not_8:
+        DEC A
+        JR NZ,.one_pixel
+        LD HL,4
+        JR .store_step
+.one_pixel:
+        LD HL,1
+.store_step:
+        LD (CAMERA_STEP),HL
+        LD A,L
+        LD (STATUS_STEP),A
+        RET
+
 POSITION:        DW 0
 COARSE:          DW 0
 PHASE:           DB 0
 DIRECTION:       DB 0
 LEVEL_INDEX:     DB 0
 LEVEL_BANK:      DB 0
+CAMERA_MODE:     DB 0
+MODE_TICKS:      DB 0
+CAMERA_STEP:     DW 8
 DISPLAY_BIT:     DB 0
 RENDER_TO_7:     DB 0
 ROWS_LEFT:       DB 0
@@ -240,6 +287,8 @@ STATUS_FRAMES:   EQU 0xBB04
 STATUS_LEVEL:    EQU 0xBB06
 STATUS_SCREEN:   EQU 0xBB07
 STATUS_IRQ:      EQU 0xBB08
+STATUS_MODE:     EQU 0xBB09
+STATUS_STEP:     EQU 0xBB0A
 LEVEL_HEIGHT     EQU 128
 
         INCLUDE "generated_rows.inc"
@@ -258,4 +307,3 @@ IM2_HANDLER:
         POP AF
         EI
         RETI
-        ASSERT $ < 0xBB00
