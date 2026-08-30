@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a character-free monochrome Spectrum scrolling reference slice."""
+"""Build a monochrome Spectrum scrolling and masked-sprite reference slice."""
 from __future__ import annotations
 
 import hashlib
@@ -129,7 +129,47 @@ def write_generated_source() -> None:
                       f"        LD H,0x{right_hi:02X}", "        LD H,(HL)", "        EX AF,AF'", "        OR H",
                       "        LD (BC),A", "        INC BC"]
         lines.append("        RET")
+    sprite_y, sprite_x_byte = 140, 15
+    lines.append("SPRITE_ROWS_5:")
+    for y in range(20):
+        lines.append(f"        DW 0x{zx_address(sprite_y + y) + sprite_x_byte:04X}")
+    lines.append("SPRITE_ROWS_7:")
+    for y in range(20):
+        offset = zx_address(sprite_y + y) - 0x4000 + sprite_x_byte
+        lines.append(f"        DW 0x{0xC000 + offset:04X}")
     (HERE / "generated_rows.inc").write_text("\n".join(lines) + "\n", encoding="ascii")
+
+    frames: list[Image.Image] = []
+    for pose in range(3):
+        frame = Image.new("1", (16, 20), 0)
+        d = ImageDraw.Draw(frame)
+        d.rectangle((5, 0, 10, 5), fill=1)
+        d.rectangle((6, 6, 9, 7), fill=1)
+        if pose == 0:
+            d.rectangle((5, 8, 10, 15), fill=1)
+            d.line((5, 9, 2, 13), fill=1, width=2); d.line((10, 9, 13, 13), fill=1, width=2)
+        elif pose == 1:
+            d.rectangle((4, 8, 11, 15), fill=1)
+            d.line((4, 10, 1, 11), fill=1, width=2); d.line((11, 10, 14, 11), fill=1, width=2)
+        else:
+            d.rectangle((5, 9, 10, 15), fill=1)
+            d.line((5, 11, 3, 15), fill=1, width=2); d.line((10, 11, 12, 15), fill=1, width=2)
+        d.rectangle((5, 16, 7, 19), fill=1)
+        d.rectangle((9, 16, 11, 19), fill=1)
+        frames.append(frame)
+
+    sprite = ["; Generated masked 16x20 idle frames: mask, ink for each byte.", "SPRITE_FRAME_TABLE:",
+              "        DW SPRITE_FRAME0", "        DW SPRITE_FRAME1", "        DW SPRITE_FRAME2"]
+    for index, frame in enumerate(frames):
+        sprite.append(f"SPRITE_FRAME{index}:")
+        for y in range(20):
+            values: list[int] = []
+            for byte in range(2):
+                ink = 0
+                for bit in range(8): ink = (ink << 1) | frame.getpixel((byte * 8 + bit, y))
+                values += [ink ^ 0xFF, ink]
+            sprite.append("        DB " + ", ".join(f"0x{value:02X}" for value in values))
+    (HERE / "generated_sprite.inc").write_text("\n".join(sprite) + "\n", encoding="ascii")
 
 
 def assemble() -> bytes:
@@ -174,7 +214,8 @@ def main() -> None:
     snapshot = make_sna(code, pack_level(level_one), pack_level(level_two), render_view(level_one, 0))
     sna = OUT / "prehistorik2-monochrome-camera-benchmark.sna"; sna.write_bytes(snapshot)
     manifest = {"target":"Stock ZX Spectrum 128K PAL", "levels":[{"id":1,"width":WORLD_WIDTH},{"id":2,"width":WORLD_WIDTH}],
-                "render":{"attributes":"fixed bright-white ink on black paper","per_frame_attribute_writes":0},
+                "render":{"attributes":"fixed bright-white ink on black paper","per_frame_attribute_writes":0,
+                          "sprite":{"frames":3,"size":"16x20","composition":"(destination AND mask) OR ink","feet_anchor":"fixed"}},
                 "scroll":{"one_pixel_phases":8,"camera_benchmark_steps":[8,4,1],"mode_hold_presents":64,"view_width":VIEW_WIDTH,"active_scanlines":LEVEL_HEIGHT},
                 "snapshot":{"bytes":len(snapshot),"sha256":hashlib.sha256(snapshot).hexdigest()}}
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
