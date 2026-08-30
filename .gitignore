@@ -1,5 +1,7 @@
 artifacts/
 generated_rows.inc
 generated_sprite.inc
+generated_asset_lab.inc
+generated_asset_lab_background.bin
 reference/
 __pycache__/
