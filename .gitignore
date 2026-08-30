@@ -1,4 +1,5 @@
 artifacts/
 generated_rows.inc
+generated_sprite.inc
 reference/
 __pycache__/
