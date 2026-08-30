@@ -23,6 +23,20 @@ adjacent source bytes through 8x256 lookup tables, so both full levels fit in
 the stock 128K memory map. Rendering always completes in the hidden screen bank
 before the display flip.
 
+## Separate source-asset sprite lab
+
+`build_asset_lab.py` produces a separate SNA, leaving the scrolling benchmark
+unchanged.  It requires a local source checkout containing `pre2atlas.png`, its
+JSON frame map, and `L1.png`; set `PH2_ASSET_DIR` to that checkout.  The lab
+uses authored player idle frames 25, 27, 30, 35 and 36, bushes 420/433, and
+portal/checkpoint 308.  It reduces these source pixels to 1-bit data and uses a
+4-byte × 40-row restore plus `(destination AND mask) OR ink` compositor on the
+hidden screen.
+
+```sh
+PH2_ASSET_DIR=/path/to/prehistorik-2-phaserjs python3 build_asset_lab.py
+```
+
 Build and capture:
 
 ```sh
