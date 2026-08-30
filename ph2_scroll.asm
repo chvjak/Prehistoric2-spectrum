@@ -32,6 +32,8 @@ START:
         LD (LEVEL_BANK),A
         LD (CAMERA_MODE),A
         LD (MODE_TICKS),A
+        LD (SPRITE_FRAME),A
+        LD (SPRITE_TICKS),A
         LD A,1
         LD (DIRECTION),A
         LD (RENDER_TO_7),A
@@ -42,6 +44,7 @@ START:
 
 FRAME:
         CALL WAIT_IRQ
+        CALL UPDATE_SPRITE_ANIMATION
         CALL CALCULATE_OFFSET
         CALL DRAW_LEVEL
         CALL ADVANCE_SCROLL
@@ -94,6 +97,7 @@ DRAW_TO_5:
         CALL RENDER_PHASE
         CALL NEXT_ROW
         JR NZ,.row
+        CALL COMPOSE_SPRITE_5
         XOR A
         LD (DISPLAY_BIT),A
         LD (STATUS_SCREEN),A
@@ -123,6 +127,7 @@ DRAW_TO_7:
         LDIR
         CALL NEXT_ROW
         JR NZ,.row
+        CALL COMPOSE_SPRITE_7
         LD A,8
         LD (DISPLAY_BIT),A
         LD A,1
@@ -183,6 +188,64 @@ PAGE_VALUE:
         LD C,0xFD
         LD B,0x7F
         OUT (C),A
+        RET
+
+; Proper monochrome software compositor. Sprite frames use (mask, ink) byte
+; pairs: destination = (destination AND mask) OR ink. The two screen paths keep
+; the physical displayed bank untouched until composition has finished.
+COMPOSE_SPRITE_5:
+        LD IX,SPRITE_ROWS_5
+        JR COMPOSE_SPRITE
+COMPOSE_SPRITE_7:
+        LD IX,SPRITE_ROWS_7
+COMPOSE_SPRITE:
+        LD A,(SPRITE_FRAME)
+        ADD A,A
+        LD E,A
+        LD D,0
+        LD HL,SPRITE_FRAME_TABLE
+        ADD HL,DE
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD B,20
+.row:   LD L,(IX+0)
+        LD H,(IX+1)
+        LD A,(DE)
+        INC DE
+        AND (HL)
+        LD C,A
+        LD A,(DE)
+        INC DE
+        OR C
+        LD (HL),A
+        INC HL
+        LD A,(DE)
+        INC DE
+        AND (HL)
+        LD C,A
+        LD A,(DE)
+        INC DE
+        OR C
+        LD (HL),A
+        INC IX
+        INC IX
+        DJNZ .row
+        RET
+
+; Advance a three-pose breathing/arm idle cycle every eight presented frames.
+UPDATE_SPRITE_ANIMATION:
+        LD A,(SPRITE_TICKS)
+        INC A
+        LD (SPRITE_TICKS),A
+        AND 7
+        RET NZ
+        LD A,(SPRITE_FRAME)
+        INC A
+        CP 3
+        JR C,.store
+        XOR A
+.store: LD (SPRITE_FRAME),A
         RET
 
 ; Benchmark three camera strides without changing the renderer:
@@ -278,6 +341,8 @@ LEVEL_BANK:      DB 0
 CAMERA_MODE:     DB 0
 MODE_TICKS:      DB 0
 CAMERA_STEP:     DW 8
+SPRITE_FRAME:     DB 0
+SPRITE_TICKS:     DB 0
 DISPLAY_BIT:     DB 0
 RENDER_TO_7:     DB 0
 ROWS_LEFT:       DB 0
@@ -293,8 +358,10 @@ LEVEL_HEIGHT     EQU 128
 
         INCLUDE "generated_rows.inc"
 
-        ASSERT $ < 0xA800
 ; Tables are inserted by the Python builder at 0xA800..0xB7FF.
+        ASSERT $ < 0xA800
+        DEFS 0xB800-$,0
+        INCLUDE "generated_sprite.inc"
         DEFS 0xB900-$,0
 IM2_VECTORS:
         DEFS 257,0xBA
