@@ -8,6 +8,8 @@ The current reference snapshot is deliberately monochrome: both screen banks
 have permanent bright-white-on-black attributes, so the scrolling hot path only
 updates bitmap bytes. It cycles through 8-, 4- and 1-pixel camera increments
 every 64 completed hidden-screen renders; capture reports the active step.
+It also composites three generated 16x20 masked idle poses after the background
+has been rendered to the hidden bank, using `(destination AND mask) OR ink`.
 
 This stock Spectrum 128K technical/art study covers two complete four-screen
 level strips, based on the CPC/CPC+ conversion's cave, jungle, bridge, and
