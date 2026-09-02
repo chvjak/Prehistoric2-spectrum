@@ -28,14 +28,22 @@ before the display flip.
 `build_asset_lab.py` produces a separate SNA, leaving the scrolling benchmark
 unchanged.  It requires a local source checkout containing `pre2atlas.png`, its
 JSON frame map, and `L1.png`; set `PH2_ASSET_DIR` to that checkout.  The lab
-uses authored player idle frames 25, 27, 30, 35 and 36, bushes 420/433, and
-portal/checkpoint 308.  It reduces these source pixels to 1-bit data and uses a
-4-byte × 40-row restore plus `(destination AND mask) OR ink` compositor on the
-hidden screen.
+uses authored player idle frames 25/27/30/35/36, dino 360/367, frog 393/395,
+bush 420/433, and checkpoint traffic-light states 308/310. It reduces these
+source pixels to 1-bit mask/ink data.
+
+The lab intentionally keeps bank 5 visible and performs no screen flips. Each
+object has its own 50 Hz tick divisor; only an object whose frame changes
+restores its byte-aligned background rectangle and applies
+`(destination AND mask) OR ink`. Initial tick phases are staggered to avoid
+several expensive blits landing on the same PAL refresh.
 
 ```sh
 PH2_ASSET_DIR=/path/to/prehistorik-2-phaserjs python3 build_asset_lab.py
 ```
+
+The resulting snapshot is
+`artifacts/prehistorik2-multi-sprite-idle-lab.sna`.
 
 Build and capture:
 
