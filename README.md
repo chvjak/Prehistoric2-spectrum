@@ -29,8 +29,10 @@ before the display flip.
 unchanged.  It requires a local source checkout containing `pre2atlas.png`, its
 JSON frame map, and `L1.png`; set `PH2_ASSET_DIR` to that checkout.  The lab
 uses authored player idle frames 25/27/30/35/36, dino 360/367, frog 393/395,
-bush 420/433, and checkpoint traffic-light states 308/310. It reduces these
-source pixels to 1-bit mask/ink data.
+bush 420/433, and checkpoint traffic-light states 308/310. Sprite conversion
+keeps the alpha silhouette, traces selected colour/luminance feature edges, and
+uses contiguous solid highlights. It does not dither sprite pixels; the level
+background retains its separate ordered-dither conversion.
 
 The lab intentionally keeps bank 5 visible and performs no screen flips. Each
 object has its own 50 Hz tick divisor; only an object whose frame changes
@@ -43,7 +45,7 @@ PH2_ASSET_DIR=/path/to/prehistorik-2-phaserjs python3 build_asset_lab.py
 ```
 
 The resulting snapshot is
-`artifacts/prehistorik2-multi-sprite-idle-lab.sna`.
+`artifacts/prehistorik2-traced-multi-sprite-idle-lab.sna`.
 
 Build and capture:
 
