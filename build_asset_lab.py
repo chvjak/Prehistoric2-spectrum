@@ -31,14 +31,16 @@ class SpriteSpec:
     width: int
     height: int
     period: int
+    edge_threshold: float
+    fill_threshold: float
 
 
 SPRITES = (
-    SpriteSpec("player", ("25", "27", "30", "35", "36"), 104, 80, 32, 40, 8),
-    SpriteSpec("dino", ("360", "367"), 144, 96, 48, 32, 12),
-    SpriteSpec("frog", ("393", "395"), 64, 96, 48, 32, 10),
-    SpriteSpec("bush", ("420", "433"), 8, 104, 56, 24, 16),
-    SpriteSpec("checkpoint", ("308", "310"), 200, 56, 48, 72, 25),
+    SpriteSpec("player", ("25", "27", "30", "35", "36"), 104, 80, 32, 40, 8, 58, 184),
+    SpriteSpec("dino", ("360", "367"), 144, 96, 48, 32, 12, 54, 174),
+    SpriteSpec("frog", ("393", "395"), 64, 96, 48, 32, 10, 52, 172),
+    SpriteSpec("bush", ("420", "433"), 8, 104, 56, 24, 16, 45, 166),
+    SpriteSpec("checkpoint", ("308", "310"), 200, 56, 48, 72, 25, 50, 170),
 )
 
 
@@ -70,6 +72,61 @@ def mono_values(image: Image.Image) -> tuple[list[int], list[int]]:
             threshold = (bayer[y & 3][x & 3] + 0.5) * 16
             opaque.append(int(solid))
             ink.append(int(solid and light >= threshold))
+    return opaque, ink
+
+
+def traced_values(image: Image.Image, edge_threshold: float, fill_threshold: float) -> tuple[list[int], list[int]]:
+    """Make clean 1-bit sprite art: silhouette, feature edges, solid highlights."""
+    rgba = image.convert("RGBA")
+    width, height = rgba.size
+    pixels = list(rgba.getdata())
+    opaque = [int(pixel[3] >= 32) for pixel in pixels]
+    light = [
+        max(r, g, b) * 0.58 + (r * 0.2126 + g * 0.7152 + b * 0.0722) * 0.42
+        for r, g, b, _ in pixels
+    ]
+
+    def neighbours(index: int, diagonals: bool = True):
+        x, y = index % width, index // width
+        offsets = (
+            ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
+            if diagonals
+            else ((0, -1), (-1, 0), (1, 0), (0, 1))
+        )
+        for dx, dy in offsets:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                yield ny * width + nx
+
+    contour = [False] * len(pixels)
+    feature = [False] * len(pixels)
+    highlight = [False] * len(pixels)
+    for index, solid in enumerate(opaque):
+        if not solid:
+            continue
+        adjacent = list(neighbours(index))
+        contour[index] = len(adjacent) < 8 or any(not opaque[n] for n in adjacent)
+        highlight[index] = light[index] >= fill_threshold
+        r, g, b, _ = pixels[index]
+        for other in neighbours(index, diagonals=False):
+            if not opaque[other] or light[index] <= light[other]:
+                continue
+            rr, gg, bb, _ = pixels[other]
+            colour_jump = max(abs(r - rr), abs(g - gg), abs(b - bb))
+            if light[index] - light[other] >= edge_threshold or colour_jump >= edge_threshold * 1.45:
+                feature[index] = True
+                break
+
+    # Reject Bayer-like single-pixel noise while retaining every silhouette pixel.
+    solid_highlight = [
+        value and sum(highlight[n] for n in neighbours(index)) >= 2
+        for index, value in enumerate(highlight)
+    ]
+    stable_feature = [
+        value and any(contour[n] or feature[n] or solid_highlight[n] for n in neighbours(index))
+        for index, value in enumerate(feature)
+    ]
+    ink = [int(contour[i] or stable_feature[i] or solid_highlight[i]) for i in range(len(pixels))]
     return opaque, ink
 
 
@@ -123,7 +180,9 @@ def write_generated(atlas: Image.Image, atlas_json: dict, background: Image.Imag
         for index in range(len(spec.keys)):
             lines.append(f"        DW {label}_FRAME{index}")
         for index, key in enumerate(spec.keys):
-            opaque, ink = mono_values(sprite_canvas(atlas, atlas_json, spec, key))
+            opaque, ink = traced_values(
+                sprite_canvas(atlas, atlas_json, spec, key), spec.edge_threshold, spec.fill_threshold
+            )
             lines.append(f"{label}_FRAME{index}:")
             for y in range(spec.height):
                 values: list[int] = []
@@ -143,7 +202,7 @@ def assemble() -> bytes:
     assembler = os.environ.get("SJASMPLUS") or shutil.which("sjasmplus")
     if not assembler:
         raise RuntimeError("sjasmplus is required; set SJASMPLUS")
-    binary = OUT / "ph2-multi-sprite-lab-code.bin"
+    binary = OUT / "ph2-traced-multi-sprite-lab-code.bin"
     result = subprocess.run(
         [assembler, f"--raw={binary}", "ph2_asset_lab.asm"],
         cwd=HERE,
@@ -181,7 +240,7 @@ def main() -> None:
     code = assemble()
     packed_background = (HERE / "generated_asset_lab_background.bin").read_bytes()
     snapshot = make_sna(code, packed_background)
-    sna = OUT / "prehistorik2-multi-sprite-idle-lab.sna"
+    sna = OUT / "prehistorik2-traced-multi-sprite-idle-lab.sna"
     sna.write_bytes(snapshot)
     manifest = {
         "target": "Stock ZX Spectrum 128K PAL",
@@ -194,13 +253,16 @@ def main() -> None:
             "formula": "(destination AND mask) OR ink",
             "restore": "only the changed object's byte-aligned rectangle",
             "attributes": "fixed bright-white ink on black paper",
+            "sprite_conversion": "alpha mask plus traced contour/internal edges and solid highlights; no dithering",
         },
         "snapshot": {
             "bytes": len(snapshot),
             "sha256": hashlib.sha256(snapshot).hexdigest(),
         },
     }
-    (OUT / "multi-sprite-lab-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (OUT / "traced-multi-sprite-lab-manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     print(json.dumps(manifest, indent=2))
 
 
